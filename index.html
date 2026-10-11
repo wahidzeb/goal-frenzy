@@ -389,6 +389,15 @@ body:not(.ads-on) .adslot{display:none!important}
 
 <div id="toast"></div>
 <script>
+/* GA4 custom events (Games by Zaib). Safe: never throws, light (no per-frame calls, dedupe + per-page cap). */
+var ZT_N = 0, ZT_K = '', ZT_KT = 0, ZT_T = 0, ZT_S = 0, ZT_H = 0;
+function zt(n, p) { try { var k = n + JSON.stringify(p || 0), t = Date.now(); if (ZT_N > 150 || (k === ZT_K && t - ZT_KT < 500)) return; ZT_N++; ZT_K = k; ZT_KT = t; window.gtag && gtag('event', n, Object.assign({ game_id: 'goal-frenzy' }, p)); } catch (e) {} }
+function ztPlay(on) { try { var t = Date.now(); if (ZT_S) { ZT_T += (t - ZT_S) / 1e3; ZT_S = 0; } if (on) ZT_S = t; } catch (e) {} }
+function ztPing(r) { try { ztPlay(false); if (ZT_T >= 1) zt('play_time', { play_time: Math.round(ZT_T), reason: r }); ZT_T = 0; } catch (e) {} }
+try {
+  document.addEventListener('visibilitychange', function () { if (document.hidden) { ZT_H = !!ZT_S; ztPing('page_hide'); } else if (ZT_H) { ZT_H = 0; ztPlay(true); } });
+  document.addEventListener('click', function (e) { try { var a = e.target && e.target.closest && e.target.closest('a[href]'); if (!a) return; var u = new URL(a.href, location.href); if (!/^https?:$/.test(u.protocol)) return; if (u.host === location.host || /(^|\.)zaibgames\.com$/.test(u.host)) { if (u.pathname.indexOf('/goal-frenzy/') !== 0) zt('more_games_click', { link_url: u.href }); } else zt('outbound_click', { link_url: u.href, link_domain: u.host, outbound: true }); } catch (err) {} }, true);
+} catch (e) {}
 'use strict';
 // ================= Goal Frenzy by Zaib — core =================
 const $ = s => document.querySelector(s), $$ = s => Array.from(document.querySelectorAll(s));
@@ -3640,6 +3649,7 @@ function startMatch(o) {
   updateCamera(m, 0.016, true);
   $('#hud').classList.remove('hidden', 'pens'); showScreen(null);
   setCrowd(0.55); applyVolumes();
+  if (!G.bot && m.mode !== 'demo' && m.mode !== 'tutorial') { zt('game_start', { mode: m.mode + (m.two ? '_2p' : ''), level: m.diff + 1 }); zt('level_start', { level: m.diff + 1, mode: m.mode }); ztPlay(true); }
   G.onMatchEnd = mm => { if (G.m === mm && !mm.handled) { mm.handled = true; matchFinished(mm); } };
   G.banner = { text: m.teams[0].data.code + '  vs  ' + m.teams[1].data.code, sub: o.title || (DIFFS[m.diff].name + ' · ' + m.len + ' min'), col: '#fff', t: 0, max: 1.8 };
   if (m.two && !G.bot) lockLandscape();
@@ -3659,6 +3669,7 @@ function startPens(o) {
   $('#hud').classList.remove('hidden'); $('#hud').classList.add('pens'); showScreen(null);
   setCrowd(0.5); applyVolumes();
   startShootout(s);
+  if (!G.bot && !o.fromMatch) { zt('game_start', { mode: 'pens' + (s.two ? '_2p' : ''), level: (s.diff | 0) + 1 }); ztPlay(true); }
   tryFullscreen(); if (s.two) lockLandscape();
   G.last = performance.now();
   return s;
@@ -3878,6 +3889,7 @@ const TUT_STEPS = [
 ];
 function startTutorial(after) {
   const m = startMatch({ mode: 'tutorial', home: -1, away: 9, human: 0, len: 3, size: 5, diff: 0, tod: 1, title: 'Training' });
+  zt('tutorial_begin', {}); ztPlay(true);
   m.tut = { step: 0, t: 0, prog: 0, ok: 0, regive: 0, after: after || null, live: false };
   G.banner = { text: 'TRAINING', sub: 'Learn the controls in a minute', col: '#fff', t: 0, max: 1.6 };
   return m;
@@ -3923,7 +3935,7 @@ function tutUpdate(m, dt) {
     if (t.t > 1.1) {
       t.step++; t.ok = 0; t.t = 0; t.prog = 0; t.live = false;
       const n = tutStep(m);
-      if (!n) { t.finished = true; t.t = 0; const first = !save.tutDone; save.tutDone = true; if (first) save.coins += 100; writeSave(); G.banner = { text: 'READY!', sub: first ? 'Training complete · +100 coins' : 'Training complete', col: '#ffd23f', t: 0, max: 2.4, goal: true }; SFX.win(); return; }
+      if (!n) { t.finished = true; t.t = 0; const first = !save.tutDone; save.tutDone = true; if (first) save.coins += 100; zt('tutorial_complete', { first: first }); if (first) zt('earn_virtual_currency', { virtual_currency_name: 'coins', value: 100, item_name: 'tutorial_reward' }); ztPing('tutorial'); writeSave(); G.banner = { text: 'READY!', sub: first ? 'Training complete · +100 coins' : 'Training complete', col: '#ffd23f', t: 0, max: 2.4, goal: true }; SFX.win(); return; }
       if (n.id === 'slide') { t.live = true; tutGive(m, false); }
       else if (n.id === 'power') { m.teams[m.human].power.charge = 1; tutGive(m, true); }
       else if (n.id === 'shoot' || n.id === 'swipe') tutGive(m, true);
@@ -4382,6 +4394,14 @@ function showResults(m, pens) {
     $('#bNext').textContent = 'Play again'; $('#bRetry').classList.add('hidden');
     if (win || s.two) SFX.win(); else SFX.lose();
   }
+  if (!G.bot) { try {
+    const zm = m ? m.mode + (m.two ? '_2p' : '') : 'pens' + (pens.two ? '_2p' : ''), zr = cls || 'win', zs = m ? m.teams[0].score : pens.kicks[0].filter(Boolean).length;
+    if (m) zt('level_end', { level: diff + 1, mode: zm, success: zr === 'win' });
+    zt('game_over', { score: zs, level: diff + 1, mode: zm, result: zr });
+    if (zr === 'win' && !(m ? m.two : pens.two)) zt('post_score', { score: zs, level: diff + 1, mode: zm });
+    if (coins > 0) zt('earn_virtual_currency', { virtual_currency_name: 'coins', value: coins, item_name: zm + '_reward' });
+    if (badgeTxt) zt('unlock_achievement', { achievement_id: badgeTxt });
+    ztPing('game_over'); } catch (e) { } }
   if ((!G.bot || G.testRecord)) save.coins += coins;
   writeSave();
   lines.push(['Coins', fmt(save.coins)]);
@@ -4408,7 +4428,7 @@ function renderShop() {
       card.innerHTML = '<canvas width="96" height="96" style="width:48px;height:48px;flex:none"></canvas><div class="info"><div class="ttl">' + u.name + ' <span class="pill a">Lv ' + lv + '</span></div><div class="desc">' + u.desc + '</div><div class="pips">' + Array.from({ length: UPG_MAX }, (_, i) => '<i class="' + (i < lv ? 'on' : '') + '"></i>').join('') + '</div></div>' +
         '<div class="cbtns"><button class="btn small ' + (max ? 'dark' : 'gold') + '" ' + (max || save.coins < cost ? 'disabled' : '') + '>' + (max ? 'MAX' : '<span class="coin" style="width:16px;height:16px"></span>' + cost) + '</button></div>';
       upgIcon(card.querySelector('canvas'), u.id);
-      card.querySelector('button').onclick = () => { if (max) return; if (save.coins < cost) { SFX.denied(); toast('Not enough coins. Play matches to earn more!'); return; } save.coins -= cost; save.upg[u.id]++; writeSave(); SFX.buy(); refreshCoins(); renderShop(); toast(u.name + ' upgraded to level ' + save.upg[u.id] + '!'); };
+      card.querySelector('button').onclick = () => { if (max) return; if (save.coins < cost) { SFX.denied(); toast('Not enough coins. Play matches to earn more!'); return; } save.coins -= cost; save.upg[u.id]++; zt('spend_virtual_currency', { virtual_currency_name: 'coins', value: cost, item_name: u.name + ' ' + save.upg[u.id] }); writeSave(); SFX.buy(); refreshCoins(); renderShop(); toast(u.name + ' upgraded to level ' + save.upg[u.id] + '!'); };
       el.appendChild(card);
     }
     const note = document.createElement('div'); note.className = 'small-note'; note.textContent = 'Upgrades boost ' + d.name + ' (overall ' + d.ovr + ') in every mode.'; el.appendChild(note);
@@ -4428,9 +4448,9 @@ function renderShop() {
       const g = c.createRadialGradient(48, 40, 4, 48, 48, 46); g.addColorStop(0, shade(p.col, 0.3)); g.addColorStop(1, shade(p.col, -0.45));
       c.fillStyle = g; circ(c, 48, 48, 44); c.fill(); c.strokeStyle = INK; c.lineWidth = 6; c.stroke();
       drawPowerIcon(c, p.id, 48, 48, 24, '#fff');
-      const b = card.querySelector('[data-b]'); if (b) b.onclick = () => { if (save.coins < p.price) { SFX.denied(); return; } save.coins -= p.price; save.powOwn[i] = true; save.powEq = i; writeSave(); SFX.buy(); refreshCoins(); renderShop(); toast(p.name + ' unlocked and equipped!'); };
+      const b = card.querySelector('[data-b]'); if (b) b.onclick = () => { if (save.coins < p.price) { SFX.denied(); return; } save.coins -= p.price; save.powOwn[i] = true; zt('spend_virtual_currency', { virtual_currency_name: 'coins', value: p.price, item_name: p.name }); save.powEq = i; writeSave(); SFX.buy(); refreshCoins(); renderShop(); toast(p.name + ' unlocked and equipped!'); };
       const e = card.querySelector('[data-e]'); if (e) e.onclick = () => { save.powEq = i; writeSave(); SFX.click(); renderShop(); };
-      const u = card.querySelector('[data-u]'); if (u) u.onclick = () => { if (lv >= 2 || save.coins < upCost) { SFX.denied(); return; } save.coins -= upCost; save.powLv[i]++; writeSave(); SFX.buy(); refreshCoins(); renderShop(); };
+      const u = card.querySelector('[data-u]'); if (u) u.onclick = () => { if (lv >= 2 || save.coins < upCost) { SFX.denied(); return; } save.coins -= upCost; save.powLv[i]++; zt('spend_virtual_currency', { virtual_currency_name: 'coins', value: upCost, item_name: p.name + ' ' + (save.powLv[i] + 1) }); writeSave(); SFX.buy(); refreshCoins(); renderShop(); };
       el.appendChild(card);
     });
   }
@@ -4482,7 +4502,7 @@ function syncSettingsUI() {
 }
 function bindSegs(root) {
   for (const s of root.querySelectorAll('[data-seg]')) for (const b of s.querySelectorAll('button')) b.onclick = () => {
-    const k = s.dataset.seg; save.settings[k] = +b.dataset.v; writeSave(); SFX.click(); syncSettingsUI();
+    const k = s.dataset.seg; save.settings[k] = +b.dataset.v; zt('settings_change', { setting: k, value: String(b.dataset.v) }); writeSave(); SFX.click(); syncSettingsUI();
     if (k === 'q') { perf.low = false; perf.slow = 0; resize(); }
     if (k === 'diff' && save.cup && !save.cup.done && curScreen === 'cup') { }
   };
@@ -4500,7 +4520,7 @@ function initUI() {
   for (const b of $$('[data-go]')) b.addEventListener('click', () => { ensureAudio(); SFX.click(); showScreen(b.dataset.go); });
   for (const b of $$('[data-back]')) b.addEventListener('click', () => { SFX.click(); goBack(); });
   for (const t of $$('[data-set]')) t.addEventListener('click', () => {
-    const k = t.dataset.set; save.settings[k] = !save.settings[k]; writeSave(); syncSettingsUI(); applyVolumes(); SFX.click();
+    const k = t.dataset.set; save.settings[k] = !save.settings[k]; zt('settings_change', { setting: k, value: String(save.settings[k]) }); writeSave(); syncSettingsUI(); applyVolumes(); SFX.click();
     if (k === 'lefty') layoutControls();
     if (k === 'sound' && AU.ctx) setCrowd(AU.crowdTarget);
   });
